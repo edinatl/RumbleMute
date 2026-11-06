@@ -261,7 +261,7 @@ function mergeMutes(stored, baseline, desired) {
   const storedMap = muteMap(stored);
   const removed = Object.create(null);
   Object.keys(base).forEach(function (key) {
-    if (!des[key]) {
+    if (!des[key] && (!storedMap[key] || storedMap[key].until === base[key].until)) {
       removed[key] = true;
     }
   });
@@ -396,73 +396,37 @@ function mergeMutes(stored, baseline, desired) {
     return total;
   }
 
-  function applyCountDeletes(storedCounts, baselineCounts, desiredCounts, listed) {
-    const out = copyCounts(storedCounts);
-    const base = copyCounts(baselineCounts);
-    const des = copyCounts(desiredCounts);
-    Object.keys(base).forEach(function (key) {
-      if (!Object.prototype.hasOwnProperty.call(des, key)) {
-        delete out[key];
-      }
-    });
-    Object.keys(out).forEach(function (key) {
-      if (!listed[key]) {
-        delete out[key];
-      }
-    });
-    return out;
-  }
-
   function mergeAll(storedRaw, baselineRaw, desiredRaw) {
     const stored = normalizeState(storedRaw);
     const baseline = normalizeState(baselineRaw);
     const desired = normalizeState(desiredRaw);
     const absoluteReset = !!(desiredRaw && desiredRaw.absoluteReset);
-    const resetSeen = !absoluteReset && stored.countResetNonce > baseline.countResetNonce;
     const blockedUsers = mergeUsers(stored.blockedUsers, baseline.blockedUsers, desired.blockedUsers);
     const mutedUsers = mergeMutes(stored.mutedUsers, baseline.mutedUsers, desired.mutedUsers);
     const listed = listedKeys(blockedUsers, mutedUsers);
-    let countedMessages;
-    let blockedUserCounts;
-    let blockedCount;
+    // A reset seen in storage (stored nonce > baseline) only zeroed stored.blockedCount, so the
+    // normal three-way merge already keeps this context's increments since its baseline on top of it.
+    // Math.max yields stored.countResetNonce in that case.
     let countResetNonce = Math.max(stored.countResetNonce, baseline.countResetNonce);
-
-    if (resetSeen) {
-      countedMessages = mergeCounted(
-        stored.countedMessages,
-        baseline.countedMessages,
-        desired.countedMessages,
-        listed
-      );
-      blockedUserCounts = applyCountDeletes(
-        stored.blockedUserCounts,
-        baseline.blockedUserCounts,
-        desired.blockedUserCounts,
-        listed
-      );
-      blockedCount = stored.blockedCount;
-      countResetNonce = stored.countResetNonce;
-    } else {
-      countedMessages = mergeCounted(
-        stored.countedMessages,
-        baseline.countedMessages,
-        desired.countedMessages,
-        listed
-      );
-      blockedUserCounts = mergeCounts(
-        stored.blockedUserCounts,
-        baseline.blockedUserCounts,
-        desired.blockedUserCounts,
-        stored.countedMessages,
-        baseline.countedMessages,
-        desired.countedMessages,
-        listed
-      );
-      const added = sumIncreases(stored.blockedUserCounts, blockedUserCounts);
-      blockedCount = (absoluteReset ? 0 : stored.blockedCount) + added;
-      if (absoluteReset) {
-        countResetNonce = Math.max(countResetNonce, normalizeNonce(desiredRaw.countResetNonce));
-      }
+    const countedMessages = mergeCounted(
+      stored.countedMessages,
+      baseline.countedMessages,
+      desired.countedMessages,
+      listed
+    );
+    const blockedUserCounts = mergeCounts(
+      stored.blockedUserCounts,
+      baseline.blockedUserCounts,
+      desired.blockedUserCounts,
+      stored.countedMessages,
+      baseline.countedMessages,
+      desired.countedMessages,
+      listed
+    );
+    const added = sumIncreases(stored.blockedUserCounts, blockedUserCounts);
+    const blockedCount = (absoluteReset ? 0 : stored.blockedCount) + added;
+    if (absoluteReset) {
+      countResetNonce = Math.max(countResetNonce, normalizeNonce(desiredRaw.countResetNonce));
     }
 
     return {
@@ -604,6 +568,7 @@ function createSync(handlers) {
     let busy = 0;
     let applying = false;
     let retries = 0;
+    let pendingExternal = false;
     let chain = Promise.resolve();
     const lockOwner = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -617,7 +582,7 @@ function createSync(handlers) {
         return;
       }
       scheduled = true;
-      chain = chain.then(run, run);
+      chain = chain.then(run, run).then(flushExternal, flushExternal);
     }
 
     function finishBusy() {
@@ -751,10 +716,56 @@ function createSync(handlers) {
           }
         }
         finishBusy();
+        if (applied) {
+          onApplied();
+        }
       }
-      if (applied) {
+    }
+
+    function flushExternal() {
+      if (pendingExternal) {
+        pendingExternal = false;
+        handleExternal();
+      }
+    }
+
+    function handleExternal() {
+      if (!ready) {
+        return;
+      }
+      if (scheduled || busy || applying) {
+        pendingExternal = true;
+        return;
+      }
+      const now = read();
+      if (!sameState(now, baseline) || now.absoluteReset) {
+        schedule();
+        return;
+      }
+      busy += 1;
+      get().then(function (stored) {
+        finishBusy();
+        if (scheduled || applying) {
+          pendingExternal = true;
+          return;
+        }
+        const live = read();
+        if (!sameState(live, baseline) || live.absoluteReset) {
+          schedule();
+          return;
+        }
+        if (sameState(stored, baseline)) {
+          return;
+        }
+        applying = true;
+        setBaseline(stored);
+        write(normalizeState(stored));
+        applying = false;
         onApplied();
-      }
+      }).catch(function (err) {
+        finishBusy();
+        onError(err);
+      }).then(flushExternal);
     }
 
     return {
@@ -776,39 +787,7 @@ function createSync(handlers) {
           schedule();
         }
       },
-      handleExternal: function () {
-        if (!ready || scheduled || busy || applying) {
-          return;
-        }
-        const now = read();
-        if (!sameState(now, baseline) || now.absoluteReset) {
-          schedule();
-          return;
-        }
-        busy += 1;
-        get().then(function (stored) {
-          finishBusy();
-          if (scheduled || applying) {
-            return;
-          }
-          const live = read();
-          if (!sameState(live, baseline) || live.absoluteReset) {
-            schedule();
-            return;
-          }
-          if (sameState(stored, baseline)) {
-            return;
-          }
-          applying = true;
-          setBaseline(stored);
-          write(normalizeState(stored));
-          applying = false;
-          onApplied();
-        }).catch(function (err) {
-          finishBusy();
-          onError(err);
-        });
-      }
+      handleExternal: handleExternal
     };
   }
 
