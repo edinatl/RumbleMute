@@ -31,6 +31,41 @@ let menuDismissBound = false;
 let chatObservers = [];
 let observedChats = [];
 let observeTimer = null;
+let muteExpiryTimer = null;
+let muteLabelTimer = null;
+let blockMap = null;
+let muteMap = null;
+
+const MUTE_LABEL_REFRESH_MS = 30000;
+const MAX_TIMER_MS = 2147483647;
+
+function invalidateKeyMaps() {
+  blockMap = null;
+  muteMap = null;
+}
+
+// lowercase key -> first matching item (first wins, like the old linear scan)
+function buildKeyMap(items, nameOf) {
+  const map = new Map();
+  for (let i = 0; i < items.length; i++) {
+    const key = RCB.countKey(nameOf(items[i]));
+    if (key && !map.has(key)) {
+      map.set(key, items[i]);
+    }
+  }
+  return map;
+}
+
+// ms until the soonest mute expiry (>= 0), or null when there are no mutes
+function nextMuteDelay(mutes, now) {
+  let soonest = null;
+  for (let i = 0; i < mutes.length; i++) {
+    if (soonest === null || mutes[i].until < soonest) {
+      soonest = mutes[i].until;
+    }
+  }
+  return soonest === null ? null : Math.min(Math.max(0, soonest - now), MAX_TIMER_MS);
+}
 
 function touch() {
   memoryDirty = true;
@@ -71,6 +106,8 @@ function applyState(state) {
   });
   countResetNonce = state.countResetNonce;
   rebuildCountedMap();
+  invalidateKeyMaps();
+  scheduleMuteTimers();
 }
 
 function normalizeBlockEntry(entry) {
@@ -107,12 +144,10 @@ function matchingBlockEntry(finalUsername) {
   if (!lower) {
     return null;
   }
-  for (let i = 0; i < blockedUsers.length; i++) {
-    if (countKey(blockedUsers[i]) === lower) {
-      return blockedUsers[i];
-    }
+  if (!blockMap) {
+    blockMap = buildKeyMap(blockedUsers, function (entry) { return entry; });
   }
-  return null;
+  return blockMap.get(lower) || null;
 }
 
 function matchingMuteEntry(finalUsername) {
@@ -120,12 +155,10 @@ function matchingMuteEntry(finalUsername) {
   if (!lower) {
     return null;
   }
-  for (let i = 0; i < mutedUsers.length; i++) {
-    if (countKey(mutedUsers[i].name) === lower) {
-      return mutedUsers[i];
-    }
+  if (!muteMap) {
+    muteMap = buildKeyMap(mutedUsers, function (entry) { return entry.name; });
   }
-  return null;
+  return muteMap.get(lower) || null;
 }
 
 function activeMuteEntry(finalUsername, now) {
@@ -216,6 +249,7 @@ function enforceExclusive() {
   });
   if (changed) {
     mutedUsers = kept;
+    invalidateKeyMaps();
   }
   return changed;
 }
@@ -232,6 +266,7 @@ function collectExpired(now) {
   });
   if (expired.length) {
     mutedUsers = kept;
+    invalidateKeyMaps();
   }
   return expired;
 }
@@ -260,6 +295,7 @@ function removeMuted(name) {
   });
   if (changed) {
     mutedUsers = kept;
+    invalidateKeyMaps();
   }
   return changed;
 }
@@ -280,6 +316,7 @@ function removeBlocked(name) {
   });
   if (changed) {
     blockedUsers = kept;
+    invalidateKeyMaps();
   }
   return changed;
 }
@@ -291,6 +328,7 @@ function blockUsername(raw) {
   }
   removeMuted(name);
   blockedUsers = blockedUsers.concat([name]);
+  invalidateKeyMaps();
   touch();
   processChatMessages({ fullScan: true });
 }
@@ -329,6 +367,7 @@ function muteUsername(raw, minutes) {
     next.push({ name: name, until: until });
   }
   mutedUsers = next;
+  invalidateKeyMaps();
   touch();
   processChatMessages({ fullScan: true });
 }
@@ -692,8 +731,39 @@ function syncRowControls(message) {
 
 function revealRow(message) {
   message.classList.remove('rcb-hidden');
-  if (message.style.display === 'none') {
-    message.style.display = '';
+}
+
+function refreshMuteLabels() {
+  muteLabelTimer = null;
+  document.querySelectorAll('.rcb-controls').forEach(function (controls) {
+    const message = controls.closest('li.chat-history--row.js-chat-history-item');
+    const username = message && getRowUsername(message);
+    if (username) {
+      updateControlLabels(controls, username, message);
+    }
+  });
+  scheduleMuteTimers();
+}
+
+function scheduleMuteTimers() {
+  if (muteExpiryTimer !== null) {
+    clearTimeout(muteExpiryTimer);
+    muteExpiryTimer = null;
+  }
+  const delay = nextMuteDelay(mutedUsers, Date.now());
+  if (delay === null) {
+    if (muteLabelTimer !== null) {
+      clearTimeout(muteLabelTimer);
+      muteLabelTimer = null;
+    }
+    return;
+  }
+  muteExpiryTimer = setTimeout(function () {
+    muteExpiryTimer = null;
+    processChatMessages({ fullScan: true });
+  }, delay);
+  if (muteLabelTimer === null) {
+    muteLabelTimer = setTimeout(refreshMuteLabels, MUTE_LABEL_REFRESH_MS);
   }
 }
 
@@ -811,6 +881,7 @@ function processChatMessages(options) {
   if (expired.length) {
     showExpiryToast(expired);
   }
+  scheduleMuteTimers();
   if (memoryDirty) {
     memoryDirty = false;
     if (storageSync) {
@@ -831,6 +902,12 @@ function sameNodeList(a, b) {
   return true;
 }
 
+function isOwnMutation(record) {
+  const target = record.target;
+  const el = target && target.nodeType === 1 ? target : target && target.parentElement;
+  return !!(el && el.closest('.rcb-controls, .rcb-menu'));
+}
+
 function bindChatObserver() {
   const nodes = Array.prototype.slice.call(document.querySelectorAll('.chat-history'));
   if (sameNodeList(nodes, observedChats)) {
@@ -842,7 +919,10 @@ function bindChatObserver() {
   chatObservers = [];
   observedChats = nodes;
   nodes.forEach(function (node) {
-    const observer = new MutationObserver(function () {
+    const observer = new MutationObserver(function (records) {
+      if (records.every(isOwnMutation)) {
+        return;
+      }
       processChatMessages();
     });
     observer.observe(node, { childList: true, subtree: true });
