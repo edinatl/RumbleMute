@@ -3,6 +3,7 @@
   "name": "RumbleMute",
   "version": "1.3.0",
   "description": "Block or temporarily mute specific users in Rumble livestream chats",
+  "homepage_url": "https://github.com/edinatl/RumbleMute",
   "permissions": ["storage"],
   "action": {
     "default_popup": "popup.html",
