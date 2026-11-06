@@ -589,6 +589,9 @@ function createSync(handlers) {
       busy -= 1;
     }
 
+    // Advisory, best-effort lock: chrome.storage has no compare-and-set, so two contexts can
+    // still occasionally both believe they hold it. Correctness relies on mergeAll's 3-way
+    // merge, not on this lock; the settle delay and jitter only make collisions rarer.
     async function acquireLock() {
       for (let attempt = 0; attempt < 25; attempt++) {
         const cur = await get();
@@ -597,12 +600,14 @@ function createSync(handlers) {
         const heldByOther = !!(cur.syncLock && cur.syncLock !== lockOwner && until > now);
         if (!heldByOther) {
           await set({ syncLock: lockOwner, syncLockUntil: now + 4000 });
+          // Let a racing writer's value land before reading back.
+          await wait(15 + Math.random() * 25);
           const check = await get();
           if (check.syncLock === lockOwner) {
             return true;
           }
         }
-        await wait(20 + attempt * 15);
+        await wait(20 + attempt * 15 + Math.random() * 20);
       }
       return false;
     }
