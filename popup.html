@@ -316,6 +316,15 @@
       transition: opacity 0.14s ease, transform 0.18s var(--ease), visibility 0.14s ease;
     }
 
+    .help-tip ul {
+      margin: 0;
+      padding: 0 0 0 14px;
+    }
+
+    .help-tip li + li {
+      margin-top: 3px;
+    }
+
     .help:hover ~ .help-tip,
     .help:focus ~ .help-tip,
     .help:focus-visible ~ .help-tip {
@@ -562,6 +571,16 @@
 
     .user-list:empty {
       display: none;
+    }
+
+    /* While the paste/edit panel is open, shorten the lists so the popup stays under Chrome's 600px cap and the page-level scrollbar doesn't appear. */
+    .shell:has(.paste-panel:not([hidden])) .user-list {
+      max-height: 80px;
+    }
+
+    .paste-panel textarea {
+      height: 112px;
+      max-height: 130px;
     }
 
     /* Long lists: skip layout and paint for rows scrolled out of view. Short lists keep full painting so the highlight glow isn't clipped. */
@@ -1069,21 +1088,21 @@
             </svg>
           </button>
         </span>
-        <span class="help-tip" id="block-help" role="tooltip">A permanent block hides that username until you remove them. A timed mute hides them until it ends. Exact match, with or without @; only their own messages are hidden. The number beside a name is how many of their messages have been hidden, including muted ones.</span>
+        <span class="help-tip" id="block-help" role="tooltip"><ul><li><b>Block:</b> hidden until you remove them</li><li><b>Mute:</b> hidden until the timer ends</li><li>Matches the exact username (@ optional)</li><li>Hides only their own messages</li><li>The number is how many messages were hidden</li></ul></span>
       </div>
       <form id="add-form" class="add-row">
         <input id="username" type="text" placeholder="Username" autocomplete="off" spellcheck="false" autofocus>
         <button type="submit" id="add" class="primary">Add</button>
       </form>
       <div id="paste-panel" class="paste-panel" hidden>
-        <textarea id="paste-list" rows="6" placeholder="One username per line, or separated by commas" spellcheck="false" aria-label="Usernames to block"></textarea>
+        <textarea id="paste-list" rows="4" placeholder="One username per line, or separated by commas" spellcheck="false" aria-label="Usernames to block"></textarea>
         <div class="paste-actions">
           <button type="button" id="cancel-paste" class="ghost">Cancel</button>
           <button type="button" id="add-list" class="primary">Add all</button>
         </div>
       </div>
       <div id="edit-panel" class="paste-panel" hidden>
-        <textarea id="edit-list" rows="8" placeholder="One username per line" spellcheck="false" aria-label="Edit blocked usernames"></textarea>
+        <textarea id="edit-list" rows="4" placeholder="One username per line" spellcheck="false" aria-label="Edit blocked usernames"></textarea>
         <div class="paste-actions">
           <button type="button" id="cancel-edit" class="ghost">Cancel</button>
           <button type="button" id="save-edit" class="primary">Save</button>
