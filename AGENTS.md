@@ -12,11 +12,21 @@ Brief context for automated or human helpers working in this repo.
 
 | Piece | Role |
 |-------|------|
-| `popup.html` / `popup.js` | UI; reads/writes `chrome.storage.local` (`blockedUsers`, `blockedCount`, `blockedUserCounts`). Reset clears only `blockedCount`. |
-| `content.js` | Finds chat rows, hides/shows matches, batched counter writes, `MutationObserver`, `chrome.storage.onChanged`. |
+| `shared.js` | Loaded before `content.js` (content script) and by the popup. Username normalization (`normalizeEntry`, `countKey`), state normalization, the 3-way merge (`mergeAll`), and `createSync`, which writes storage. Exposed as `RCB`. |
+| `content.js` | Finds chat rows, hides/shows matches, mute expiry, batched counter writes, `MutationObserver`, `chrome.storage.onChanged`. |
+| `content.css` | Styles for the in-chat Block/Mute controls and hidden-row state. |
+| `popup.html` / `popup.js` | UI for the block list, muted list, and settings. Reads/writes storage through `RCB` and `createSync`. |
 | Messages | None. Popup and Rumble tabs stay in sync through `chrome.storage.onChanged`. |
 
-There is **no background service worker**. Saving from a non-Rumble active tab still updates storage; open Rumble tabs pick up `blockedUsers` via `chrome.storage.onChanged`.
+There is **no background service worker**. Saving from a non-Rumble active tab still updates storage; open Rumble tabs pick up changes via `chrome.storage.onChanged`.
+
+### Storage keys (`chrome.storage.local`)
+
+- Synced state (in `RCB.STORAGE_FIELDS`): `blockedUsers`, `mutedUsers`, `blockedUserCounts`, `blockedCount`, `countedMessages`, `countResetNonce`.
+- Settings: `filteringEnabled` (popup toggle; absent or `true` means on), `blockListSort` (popup sort mode).
+- Sync advisory lock: `syncLock` (owner token), `syncLockUntil` (expiry ms). Advisory only: `createSync` takes it best-effort, and correctness comes from `mergeAll`, not the lock. Stale locks expire on their own.
+- `countedMessages` de-duplicates hidden-message counts by message id, capped by `MAX_COUNTED`. `countResetNonce` marks a Reset so other tabs apply it.
+- Synced state is written through `createSync` (read, merge against the last baseline, write, re-read). Don't write those keys directly from new code. Settings keys are written directly.
 
 ## Rumble DOM coupling (main maintenance risk)
 
@@ -35,7 +45,7 @@ When Rumble changes HTML, fix selectors here first.
 ## Matching behavior
 
 - Usernames are compared **case-insensitively** to the chat row author (`data-username` / `.chat-history--username` only).
-- A block entry matches only when it equals that author username (after trimming and optional leading `@`). Message text and @mentions of a blocked name in someone else’s chat are not filtered.
+- A block or active mute entry matches only when it equals that author username (after trimming and optional leading `@`). Message text and @mentions of a blocked name in someone else’s chat are not filtered.
 
 ## Conventions for changes
 
@@ -43,6 +53,7 @@ When Rumble changes HTML, fix selectors here first.
 - **`manifest.json`**: strict JSON only. **`popup.html`**: must not start with non-HTML lines (e.g. `// filename` breaks parsing).
 - **`permissions`**: currently only `storage`; avoid expanding permissions without a clear need.
 - Icons live under `images/` (16, 48, 128); referenced from `manifest.json` and `action.default_icon`.
+- `design/` holds source artwork (e.g. `icon-source.png`). It is not referenced by the extension and **must be excluded when packaging** (exclude the whole folder from the zip).
 
 ## Git / release
 

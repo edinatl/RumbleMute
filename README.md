@@ -37,7 +37,9 @@ A person is on at most one list. Blocking someone who is muted drops the mute. M
 | File | Role |
 |------|------|
 | `manifest.json` | Extension manifest (MV3) |
+| `shared.js` | Username normalization, state merging, and storage sync shared by the popup and content script |
 | `content.js` | Chat observer, in-chat block and mute, filtering, and mute expiry on `*.rumble.com` |
+| `content.css` | Styles for the in-chat Block and Mute controls and hidden rows |
 | `popup.html` / `popup.js` | Block list, muted list, and `chrome.storage.local` |
 | `images/` | Extension icons (16, 48, 128) |
 

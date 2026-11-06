@@ -755,7 +755,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   input.addEventListener('keydown', function (event) {
-    if (event.key !== 'Enter') {
+    if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) {
       return;
     }
     event.preventDefault();
@@ -768,8 +768,12 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     event.preventDefault();
+    const value = input.value;
+    const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+    const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : value.length;
+    const combined = value.slice(0, start) + text + value.slice(end);
     input.value = '';
-    commitEntries(text, true);
+    commitEntries(combined, true);
     input.focus();
   });
 
