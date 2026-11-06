@@ -12,7 +12,9 @@ Chrome extension (Manifest V3) that hides chat messages from specific usernames 
 - Pause filtering (**Disabled**) shows every row again and leaves both lists in place
 - Blocklist, mutes, and counters stay in `chrome.storage.local` on this machine
 
-## Install (developer / unpacked)
+## Install
+
+From the Chrome Web Store (link coming once published), or load it unpacked:
 
 1. Clone or download this repository.
 2. Open Chrome and go to `chrome://extensions`.
@@ -41,14 +43,25 @@ A person is on at most one list. Blocking someone who is muted drops the mute. M
 | `content.js` | Chat observer, in-chat block and mute, filtering, and mute expiry on `*.rumble.com` |
 | `content.css` | Styles for the in-chat Block and Mute controls and hidden rows |
 | `popup.html` / `popup.js` | Block list, muted list, and `chrome.storage.local` |
-| `images/` | Extension icons (16, 48, 128) |
+| `images/` | Extension icons (16, 48, 128). `icon-source.png` is the master artwork and is not packaged |
 
-## Permissions
+## Permissions and privacy
 
-- `storage` — saves the block list, timed mutes, and counters locally on your machine.
+- `storage`: saves the block list, timed mutes, and counters locally on your machine.
+- Runs only on `rumble.com` pages.
 
-No network permissions. Nothing is synced or sent anywhere.
+No network access, analytics, or remote code. Nothing is synced or sent anywhere. See [PRIVACY.md](PRIVACY.md).
+
+## Packaging for the Chrome Web Store
+
+The extension has no build step. Build the upload zip from the committed runtime files only:
+
+```bash
+git archive --format=zip -o rumblemute.zip HEAD manifest.json shared.js content.js content.css popup.html popup.js images/icon16.png images/icon48.png images/icon128.png
+```
+
+Bump `version` in `manifest.json` before each upload. Dashboard text (single purpose, permission justifications) is in [STORE_LISTING.md](STORE_LISTING.md).
 
 ## License
 
-All rights reserved unless you add a license file for your preferred terms.
+[MIT](LICENSE)

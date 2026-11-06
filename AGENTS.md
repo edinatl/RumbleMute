@@ -14,6 +14,13 @@ Brief context for automated or human helpers working in this repo.
 |-------|------|
 | `shared.js` | Loaded before `content.js` (content script) and by the popup. Username normalization (`normalizeEntry`, `countKey`), state normalization, the 3-way merge (`mergeAll`), and `createSync`, which writes storage. Exposed as `RCB`. |
 | `content.js` | Finds chat rows, hides/shows matches, mute expiry, batched counter writes, `MutationObserver`, `chrome.storage.onChanged`. |
+
+### content.js performance notes
+
+- The `MutationObserver` processes only the rows that were added or changed (`changedRows`). A full rescan of every row (`fullScan`) happens only when the lists or settings change, or a mute expires.
+- List-wide bookkeeping (`enforceExclusive`, `syncCountedToLists`, `pruneCounts`) runs only on a full scan.
+- Hidden-message counter bumps are saved in one batch per `COUNT_SYNC_DELAY_MS`. Block and mute actions save immediately.
+- If the extension is reloaded under an open tab (`extensionAlive()` is false), the tab keeps filtering with the lists it has in memory and stops calling storage.
 | `content.css` | Styles for the in-chat Block/Mute controls and hidden-row state. |
 | `popup.html` / `popup.js` | UI for the block list, muted list, and settings. Reads/writes storage through `RCB` and `createSync`. |
 | Messages | None. Popup and Rumble tabs stay in sync through `chrome.storage.onChanged`. |
@@ -58,4 +65,6 @@ When Rumble changes HTML, fix selectors here first.
 ## Git / release
 
 - `.gitignore` excludes `.crx`, `.pem`, and zip packs.
+- Store package: use the `git archive` command in `README.md`. It includes only runtime files.
+- `PRIVACY.md` is the store privacy policy, and `STORE_LISTING.md` holds the dashboard justifications. Update both if permissions or stored data change.
 - No CI in repo; “test” = load unpacked on a Rumble livestream, save blocklist, confirm rows hide and counter moves.

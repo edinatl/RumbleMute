@@ -103,8 +103,12 @@ document.addEventListener('DOMContentLoaded', function () {
     } else if (listSort === 'newest') {
       names.reverse();
     } else {
+      const counts = new Map();
+      names.forEach(function (name) {
+        counts.set(name, countFor(name));
+      });
       names.sort(function (a, b) {
-        const diff = countFor(b) - countFor(a);
+        const diff = counts.get(b) - counts.get(a);
         if (diff !== 0) {
           return diff;
         }
@@ -251,15 +255,18 @@ document.addEventListener('DOMContentLoaded', function () {
     resultNote.hidden = false;
   }
 
-  function isBlockedName(name) {
-    return blockedUsers.some(function (existing) {
-      return sameName(existing, name);
+  function blockedKeySet() {
+    const keys = new Set();
+    blockedUsers.forEach(function (name) {
+      keys.add(countKey(name));
     });
+    return keys;
   }
 
   function stripMutesNowBlocked() {
+    const blocked = blockedKeySet();
     const next = mutedUsers.filter(function (entry) {
-      return !isBlockedName(entry.name);
+      return !blocked.has(countKey(entry.name));
     });
     if (next.length === mutedUsers.length) {
       return false;
@@ -594,18 +601,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const parts = String(raw).split(/[\n,;]+/);
     let added = 0;
     let duplicate = 0;
-    let mutesChanged = false;
-
     let hitLimit = false;
+    const existing = blockedKeySet();
     parts.forEach(function (part) {
       const name = normalizeEntry(part);
       if (!name) {
         return;
       }
-      const exists = blockedUsers.some(function (existing) {
-        return normalizeEntry(existing).toLowerCase() === name.toLowerCase();
-      });
-      if (exists) {
+      const key = name.toLowerCase();
+      if (existing.has(key)) {
         duplicate += 1;
         return;
       }
@@ -613,16 +617,12 @@ document.addEventListener('DOMContentLoaded', function () {
         hitLimit = true;
         return;
       }
-      const nextMutes = mutedUsers.filter(function (entry) {
-        return countKey(entry.name) !== name.toLowerCase();
-      });
-      if (nextMutes.length !== mutedUsers.length) {
-        mutedUsers = nextMutes;
-        mutesChanged = true;
-      }
+      existing.add(key);
       blockedUsers.push(name);
       added += 1;
     });
+    // A person is on at most one list: blocking drops any timed mute for that name.
+    const mutesChanged = added > 0 && stripMutesNowBlocked();
 
     showResult(added, duplicate, bulk);
     if (hitLimit) {

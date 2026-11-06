@@ -255,44 +255,44 @@
     return out;
   }
 
-function mergeMutes(stored, baseline, desired) {
-  const base = muteMap(baseline);
-  const des = muteMap(desired);
-  const storedMap = muteMap(stored);
-  const removed = Object.create(null);
-  Object.keys(base).forEach(function (key) {
-    if (!des[key] && (!storedMap[key] || storedMap[key].until === base[key].until)) {
-      removed[key] = true;
-    }
-  });
-  const out = [];
-  const seen = Object.create(null);
-  Object.keys(storedMap).forEach(function (key) {
-    if (removed[key] || seen[key]) {
-      return;
-    }
-    seen[key] = true;
-    if (base[key] && des[key] && base[key].until !== des[key].until) {
-      out.push({ name: des[key].name, until: des[key].until });
-    } else {
-      out.push({ name: storedMap[key].name, until: storedMap[key].until });
-    }
-  });
-  Object.keys(des).forEach(function (key) {
-    if (seen[key] || removed[key]) {
-      return;
-    }
-    const changed = base[key] && des[key].until !== base[key].until && !storedMap[key];
-    if (!base[key] || changed) {
+  function mergeMutes(stored, baseline, desired) {
+    const base = muteMap(baseline);
+    const des = muteMap(desired);
+    const storedMap = muteMap(stored);
+    const removed = Object.create(null);
+    Object.keys(base).forEach(function (key) {
+      if (!des[key] && (!storedMap[key] || storedMap[key].until === base[key].until)) {
+        removed[key] = true;
+      }
+    });
+    const out = [];
+    const seen = Object.create(null);
+    Object.keys(storedMap).forEach(function (key) {
+      if (removed[key] || seen[key]) {
+        return;
+      }
       seen[key] = true;
-      out.push({ name: des[key].name, until: des[key].until });
+      if (base[key] && des[key] && base[key].until !== des[key].until) {
+        out.push({ name: des[key].name, until: des[key].until });
+      } else {
+        out.push({ name: storedMap[key].name, until: storedMap[key].until });
+      }
+    });
+    Object.keys(des).forEach(function (key) {
+      if (seen[key] || removed[key]) {
+        return;
+      }
+      const changed = base[key] && des[key].until !== base[key].until && !storedMap[key];
+      if (!base[key] || changed) {
+        seen[key] = true;
+        out.push({ name: des[key].name, until: des[key].until });
+      }
+    });
+    if (out.length > MAX_MUTED) {
+      return out.slice(0, MAX_MUTED);
     }
-  });
-  if (out.length > MAX_MUTED) {
-    return out.slice(0, MAX_MUTED);
+    return out;
   }
-  return out;
-}
 
   function capCounted(list) {
     const normalized = normalizeCounted(list);
@@ -519,42 +519,42 @@ function mergeMutes(stored, baseline, desired) {
 
   const LOCK_FIELDS = ['syncLock', 'syncLockUntil'];
 
-function wait(ms) {
-  return new Promise(function (resolve) {
-    setTimeout(resolve, ms);
-  });
-}
+  function wait(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
 
-function chromeLocal() {
-  return {
-    get: function () {
-      return new Promise(function (resolve, reject) {
-        chrome.storage.local.get(STORAGE_FIELDS.concat(LOCK_FIELDS), function (result) {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            reject(new Error(err.message));
-            return;
-          }
-          resolve(result || {});
+  function chromeLocal() {
+    return {
+      get: function () {
+        return new Promise(function (resolve, reject) {
+          chrome.storage.local.get(STORAGE_FIELDS.concat(LOCK_FIELDS), function (result) {
+            const err = chrome.runtime.lastError;
+            if (err) {
+              reject(new Error(err.message));
+              return;
+            }
+            resolve(result || {});
+          });
         });
-      });
-    },
-    set: function (payload) {
-      return new Promise(function (resolve, reject) {
-        chrome.storage.local.set(payload, function () {
-          const err = chrome.runtime.lastError;
-          if (err) {
-            reject(new Error(err.message));
-            return;
-          }
-          resolve();
+      },
+      set: function (payload) {
+        return new Promise(function (resolve, reject) {
+          chrome.storage.local.set(payload, function () {
+            const err = chrome.runtime.lastError;
+            if (err) {
+              reject(new Error(err.message));
+              return;
+            }
+            resolve();
+          });
         });
-      });
-    }
-  };
-}
+      }
+    };
+  }
 
-function createSync(handlers) {
+  function createSync(handlers) {
     const get = handlers.get;
     const set = handlers.set;
     const read = handlers.read;

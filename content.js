@@ -36,8 +36,52 @@ let muteLabelTimer = null;
 let blockMap = null;
 let muteMap = null;
 
+let countSyncTimer = null;
+
+const ROW_SELECTOR = 'li.chat-history--row.js-chat-history-item';
 const MUTE_LABEL_REFRESH_MS = 30000;
 const MAX_TIMER_MS = 2147483647;
+// Hidden-message counter bumps are batched into one storage write per window.
+// Block/mute actions and list changes still save immediately.
+const COUNT_SYNC_DELAY_MS = 1500;
+
+// False once the extension is reloaded or updated under an open tab; chrome.* calls then throw.
+function extensionAlive() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id);
+  } catch (err) {
+    return false;
+  }
+}
+
+function flushSync() {
+  if (countSyncTimer !== null) {
+    clearTimeout(countSyncTimer);
+    countSyncTimer = null;
+  }
+  if (!storageSync) {
+    return;
+  }
+  if (!extensionAlive()) {
+    // Keep filtering with the lists already in memory, but stop touching storage.
+    storageSync = null;
+    return;
+  }
+  storageSync.schedule();
+}
+
+function requestSync(immediate) {
+  if (!storageSync) {
+    return;
+  }
+  if (immediate) {
+    flushSync();
+    return;
+  }
+  if (countSyncTimer === null) {
+    countSyncTimer = setTimeout(flushSync, COUNT_SYNC_DELAY_MS);
+  }
+}
 
 function invalidateKeyMaps() {
   blockMap = null;
@@ -610,7 +654,7 @@ function bindMenuDismiss() {
       return;
     }
     positionMenu(openMenu, anchor);
-  }, true);
+  }, { capture: true, passive: true });
   window.addEventListener('resize', function () {
     if (!openMenu || !openMenuRow) {
       return;
@@ -619,7 +663,7 @@ function bindMenuDismiss() {
     if (anchor) {
       positionMenu(openMenu, anchor);
     }
-  });
+  }, { passive: true });
 }
 
 function updateControlLabels(controls, username, message) {
@@ -736,7 +780,7 @@ function revealRow(message) {
 function refreshMuteLabels() {
   muteLabelTimer = null;
   document.querySelectorAll('.rcb-controls').forEach(function (controls) {
-    const message = controls.closest('li.chat-history--row.js-chat-history-item');
+    const message = controls.closest(ROW_SELECTOR);
     const username = message && getRowUsername(message);
     if (username) {
       updateControlLabels(controls, username, message);
@@ -807,86 +851,94 @@ function concealRow(message, username, now) {
   touch();
 }
 
+function processRow(message, fullScan, now) {
+  if (!filteringEnabled) {
+    message.dataset.blockerProcessed = 'true';
+    syncRowControls(message);
+    revealRow(message);
+    return;
+  }
+  const username = getRowUsername(message);
+  const seen = message.dataset.blockerUser || '';
+  const nameKey = username ? countKey(username) : '';
+  const controls = message.querySelector('.rcb-controls');
+  if (
+    !fullScan &&
+    message.dataset.blockerProcessed === 'true' &&
+    seen === nameKey &&
+    (controls || !username)
+  ) {
+    if (controls && username) {
+      updateControlLabels(controls, username, message);
+    }
+    if (username && hiddenName(username, now)) {
+      message.classList.add('rcb-hidden');
+    }
+    return;
+  }
+  message.dataset.blockerProcessed = 'true';
+  if (username) {
+    message.dataset.blockerUser = nameKey;
+  }
+  syncRowControls(message);
+  if (!username) {
+    revealRow(message);
+    return;
+  }
+  concealRow(message, username, now);
+}
+
+// options.fullScan: lists or settings changed, so re-evaluate every row.
+// options.rows: only these rows changed (from the MutationObserver). Default: every row, cheaply.
 function processChatMessages(options) {
   if (openMenuRow && !openMenuRow.isConnected) {
     closeMuteMenu(false);
   }
   const now = Date.now();
-  if (enforceExclusive()) {
-    touch();
-  }
   const expired = collectExpired(now);
-  if (expired.length) {
-    touch();
-  }
-  expired.forEach(function (entry) {
-    if (forgetCountKey(countKey(entry.name))) {
+  const fullScan = !!(options && options.fullScan) || expired.length > 0;
+
+  // List-wide bookkeeping only matters when the lists changed. Per-row counting only ever
+  // touches listed names, so new chat rows cannot break these invariants.
+  if (fullScan) {
+    if (expired.length) {
       touch();
     }
+    if (enforceExclusive()) {
+      touch();
+    }
+    expired.forEach(function (entry) {
+      if (forgetCountKey(countKey(entry.name))) {
+        touch();
+      }
+    });
+    if (syncCountedToLists()) {
+      touch();
+    }
+  }
+
+  const rows = !fullScan && options && options.rows
+    ? options.rows
+    : document.querySelectorAll(ROW_SELECTOR);
+  rows.forEach(function (message) {
+    processRow(message, fullScan, now);
   });
-  if (syncCountedToLists()) {
-    touch();
-  }
 
-  const fullScan = (options && options.fullScan) || expired.length > 0;
-  const chatMessages = document.querySelectorAll(
-    'li.chat-history--row.js-chat-history-item'
-  );
-
-  if (!filteringEnabled) {
-    chatMessages.forEach(function (message) {
-      message.dataset.blockerProcessed = 'true';
-      syncRowControls(message);
-      revealRow(message);
-    });
-  } else {
-    chatMessages.forEach(function (message) {
-      const username = getRowUsername(message);
-      const seen = message.dataset.blockerUser || '';
-      const nameKey = username ? countKey(username) : '';
-      const controls = message.querySelector('.rcb-controls');
-      if (
-        !fullScan &&
-        message.dataset.blockerProcessed === 'true' &&
-        seen === nameKey &&
-        (controls || !username)
-      ) {
-        if (controls && username) {
-          updateControlLabels(controls, username, message);
-        }
-        if (username && hiddenName(username, now)) {
-          message.classList.add('rcb-hidden');
-        }
-        return;
-      }
-      message.dataset.blockerProcessed = 'true';
-      if (username) {
-        message.dataset.blockerUser = nameKey;
-      }
-      syncRowControls(message);
-      if (!username) {
-        revealRow(message);
-        return;
-      }
-      concealRow(message, username, now);
-    });
+  if (fullScan) {
+    if (pruneCounts()) {
+      touch();
+    }
+    if (syncCountedToLists()) {
+      touch();
+    }
+    if (expired.length) {
+      showExpiryToast(expired);
+    }
+    scheduleMuteTimers();
   }
-
-  if (pruneCounts()) {
-    touch();
-  }
-  if (syncCountedToLists()) {
-    touch();
-  }
-  if (expired.length) {
-    showExpiryToast(expired);
-  }
-  scheduleMuteTimers();
   if (memoryDirty) {
     memoryDirty = false;
-    if (storageSync) {
-      storageSync.schedule();
-    }
+    requestSync(fullScan);
   }
 }
 
@@ -902,10 +954,58 @@ function sameNodeList(a, b) {
   return true;
 }
 
+function isOwnNode(node) {
+  return node.nodeType === 1 && node.classList.contains('rcb-controls');
+}
+
+// Mutations caused by the extension itself: label text inside our controls, or inserting them.
+// Removal of our controls is not ours (the extension never removes them), so the row is redone.
 function isOwnMutation(record) {
   const target = record.target;
   const el = target && target.nodeType === 1 ? target : target && target.parentElement;
-  return !!(el && el.closest('.rcb-controls, .rcb-menu'));
+  if (el && el.closest('.rcb-controls, .rcb-menu')) {
+    return true;
+  }
+  const added = record.addedNodes;
+  if (!added.length || record.removedNodes.length) {
+    return false;
+  }
+  for (let i = 0; i < added.length; i++) {
+    if (!isOwnNode(added[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Chat rows touched by these mutations: rows that were added, and rows whose content changed.
+function changedRows(records) {
+  const rows = new Set();
+  records.forEach(function (record) {
+    if (isOwnMutation(record)) {
+      return;
+    }
+    const target = record.target;
+    if (target && target.nodeType === 1) {
+      const row = target.closest(ROW_SELECTOR);
+      if (row) {
+        rows.add(row);
+      }
+    }
+    record.addedNodes.forEach(function (node) {
+      if (node.nodeType !== 1) {
+        return;
+      }
+      if (node.matches(ROW_SELECTOR)) {
+        rows.add(node);
+        return;
+      }
+      node.querySelectorAll(ROW_SELECTOR).forEach(function (row) {
+        rows.add(row);
+      });
+    });
+  });
+  return rows;
 }
 
 function bindChatObserver() {
@@ -920,10 +1020,13 @@ function bindChatObserver() {
   observedChats = nodes;
   nodes.forEach(function (node) {
     const observer = new MutationObserver(function (records) {
-      if (records.every(isOwnMutation)) {
-        return;
+      if (openMenuRow && !openMenuRow.isConnected) {
+        closeMuteMenu(false);
       }
-      processChatMessages();
+      const rows = changedRows(records);
+      if (rows.size) {
+        processChatMessages({ rows: rows });
+      }
     });
     observer.observe(node, { childList: true, subtree: true });
     chatObservers.push(observer);
@@ -950,6 +1053,13 @@ function startAfterStorageReady() {
 }
 
 bindMenuDismiss();
+
+// Save batched counter bumps before the tab goes away (best effort).
+window.addEventListener('pagehide', function () {
+  if (countSyncTimer !== null) {
+    flushSync();
+  }
+});
 
 const storageApi = RCB.chromeLocal();
 storageSync = RCB.createSync({
