@@ -21,8 +21,17 @@ Brief context for automated or human helpers working in this repo.
 - List-wide bookkeeping (`enforceExclusive`, `syncCountedToLists`, `pruneCounts`) runs only on a full scan.
 - Hidden-message counter bumps are saved in one batch per `COUNT_SYNC_DELAY_MS`. Block and mute actions save immediately.
 - If the extension is reloaded under an open tab (`extensionAlive()` is false), the tab keeps filtering with the lists it has in memory and stops calling storage.
+
+### popup.js performance notes
+
+- Rows are cloned from templates; remove/unmute clicks use one delegated listener per list. Confirming a removal and the once-a-minute highlight fade update rows in place instead of re-rendering.
+- Sorting uses a shared `Intl.Collator`, and numbers use a shared `Intl.NumberFormat` (`localeCompare` with options and `toLocaleString` were the main costs on long lists).
+- `fillCount` skips cells whose count didn't change, so live counter updates while the popup is open stay cheap.
+- Lists over `LONG_LIST_ROWS` get `.is-long`, which turns on `content-visibility: auto` for rows so off-screen rows skip layout and paint.
+- The empty-state notes start `hidden` in `popup.html`; the first storage load always does a full render to show them.
 | `content.css` | Styles for the in-chat Block/Mute controls and hidden-row state. |
 | `popup.html` / `popup.js` | UI for the block list, muted list, and settings. Reads/writes storage through `RCB` and `createSync`. |
+| `popup-boot.js` | Loaded in the popup `<head>` after `shared.js`. Applies the theme cached in `localStorage` (`rcbPopupTheme`) before first paint, and starts the initial `chrome.storage.local.get` as `RCB.popupInitialRead`, which `popup.js` consumes. |
 | Messages | None. Popup and Rumble tabs stay in sync through `chrome.storage.onChanged`. |
 
 There is **no background service worker**. Saving from a non-Rumble active tab still updates storage; open Rumble tabs pick up changes via `chrome.storage.onChanged`.

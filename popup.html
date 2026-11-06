@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>RumbleMute</title>
+  <script src="shared.js"></script>
+  <script src="popup-boot.js"></script>
   <style>
     @property --fade-top {
       syntax: "<length>";
@@ -562,6 +564,12 @@
       display: none;
     }
 
+    /* Long lists: skip layout and paint for rows scrolled out of view. Short lists keep full painting so the highlight glow isn't clipped. */
+    .user-list.is-long > .user-row {
+      content-visibility: auto;
+      contain-intrinsic-size: auto 28px;
+    }
+
     .user-row {
       position: relative;
       display: flex;
@@ -1083,13 +1091,13 @@
       </div>
       <p id="result-note" class="duplicate-note" hidden></p>
       <ul id="user-list" class="user-list"></ul>
-      <p id="empty-state" class="empty-state">No usernames yet.</p>
+      <p id="empty-state" class="empty-state" hidden>No usernames yet.</p>
       <div class="muted-section">
         <div class="label-row">
           <span class="field-label" id="muted-heading">Muted</span>
         </div>
         <ul id="muted-list" class="user-list" aria-labelledby="muted-heading"></ul>
-        <p id="muted-empty" class="empty-state">No timed mutes.</p>
+        <p id="muted-empty" class="empty-state" hidden>No timed mutes.</p>
       </div>
     </section>
 
@@ -1136,7 +1144,6 @@
     </section>
   </div>
 
-  <script src="shared.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

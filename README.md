@@ -43,6 +43,7 @@ A person is on at most one list. Blocking someone who is muted drops the mute. M
 | `content.js` | Chat observer, in-chat block and mute, filtering, and mute expiry on `*.rumble.com` |
 | `content.css` | Styles for the in-chat Block and Mute controls and hidden rows |
 | `popup.html` / `popup.js` | Block list, muted list, and `chrome.storage.local` |
+| `popup-boot.js` | Runs first in the popup: applies the saved theme and starts the storage read early |
 | `images/` | Extension icons (16, 48, 128). `icon-source.png` is the master artwork and is not packaged |
 
 ## Permissions and privacy
@@ -57,7 +58,7 @@ No network access, analytics, or remote code. Nothing is synced or sent anywhere
 The extension has no build step. Build the upload zip from the committed runtime files only:
 
 ```bash
-git archive --format=zip -o rumblemute.zip HEAD manifest.json shared.js content.js content.css popup.html popup.js images/icon16.png images/icon48.png images/icon128.png
+git archive --format=zip -o rumblemute.zip HEAD manifest.json shared.js content.js content.css popup.html popup.js popup-boot.js images/icon16.png images/icon48.png images/icon128.png
 ```
 
 Bump `version` in `manifest.json` before each upload. Dashboard text (single purpose, permission justifications) is in [STORE_LISTING.md](STORE_LISTING.md).

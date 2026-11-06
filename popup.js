@@ -54,7 +54,9 @@ document.addEventListener('DOMContentLoaded', function () {
   let highlightTimer = null;
   let muteTimer = null;
   let copyTimer = null;
+  let firstRenderDone = false;
 
+  // Built once and cloned per row; cheaper than creating each element for every render.
   function iconSvg(pathD) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 16 16');
@@ -72,16 +74,59 @@ document.addEventListener('DOMContentLoaded', function () {
     return svg;
   }
 
+  const ICON_X = iconSvg('M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2');
+  const ICON_CHECK = iconSvg('M3.2 8.3l3 3.1 6.6-7');
+
   function iconX() {
-    return iconSvg('M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2');
+    return ICON_X.cloneNode(true);
   }
 
   function iconCheck() {
-    return iconSvg('M3.2 8.3l3 3.1 6.6-7');
+    return ICON_CHECK.cloneNode(true);
   }
+
+  function rowTemplate(className, extraParts) {
+    const li = document.createElement('li');
+    li.className = className;
+    const name = document.createElement('span');
+    name.className = 'user-name';
+    const count = document.createElement('span');
+    count.className = 'user-count';
+    li.append(name, count);
+    extraParts.forEach(function (part) {
+      li.append(part);
+    });
+    return li;
+  }
+
+  const removeTemplate = document.createElement('button');
+  removeTemplate.type = 'button';
+  removeTemplate.className = 'remove';
+  removeTemplate.append(iconX());
+  const BLOCK_ROW = rowTemplate('user-row', [removeTemplate]);
+
+  const muteTimeTemplate = document.createElement('span');
+  muteTimeTemplate.className = 'mute-remaining';
+  muteTimeTemplate.title = 'Time remaining';
+  const unmuteTemplate = document.createElement('button');
+  unmuteTemplate.type = 'button';
+  unmuteTemplate.className = 'unmute';
+  unmuteTemplate.textContent = 'Unmute';
+  const MUTE_ROW = rowTemplate('user-row mute-row', [muteTimeTemplate, unmuteTemplate]);
+
+  // Above this many rows, off-screen rows skip layout and paint (see .user-list.is-long).
+  const LONG_LIST_ROWS = 40;
 
   function sameName(a, b) {
     return normalizeEntry(a).toLowerCase() === normalizeEntry(b).toLowerCase();
+  }
+
+  function setRowConfirming(row, on) {
+    const name = row.firstElementChild.textContent;
+    const remove = row.lastElementChild;
+    row.classList.toggle('is-confirming', on);
+    remove.replaceChildren(on ? iconCheck() : iconX());
+    remove.setAttribute('aria-label', (on ? 'Confirm remove ' : 'Remove ') + name);
   }
 
   function clearConfirming() {
@@ -89,7 +134,10 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     confirmingName = null;
-    render();
+    const row = listEl.querySelector('.user-row.is-confirming');
+    if (row) {
+      setRowConfirming(row, false);
+    }
   }
 
   function normalizeEntry(entry) {
@@ -105,9 +153,9 @@ document.addEventListener('DOMContentLoaded', function () {
     return typeof n === 'number' && n > 0 ? Math.floor(n) : 0;
   }
 
-  function compareAlpha(a, b) {
-    return a.localeCompare(b, undefined, { sensitivity: 'base' });
-  }
+  // A shared collator sorts ~100x faster than localeCompare with options, which builds one per call.
+  const compareAlpha = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
+  const numberFormat = new Intl.NumberFormat();
 
   function sortedBlockedUsers() {
     if (listSort === 'native') {
@@ -262,7 +310,14 @@ document.addEventListener('DOMContentLoaded', function () {
     if (stripped && storageSync) {
       storageSync.schedule();
     }
-    renderCountsOnly();
+    if (firstRenderDone) {
+      renderCountsOnly();
+    } else {
+      // The empty-state notes start hidden in popup.html, so the first load always does a full render.
+      firstRenderDone = true;
+      render();
+      renderMuted();
+    }
     fillTotalCount(blockedCount);
   }
 
@@ -311,12 +366,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function fillCount(el, name) {
     const n = countFor(name);
-    if (n > 0) {
-      el.textContent = n.toLocaleString();
-    } else {
-      el.textContent = '';
+    const value = String(n);
+    // Live count updates touch every row; skip the ones that didn't change.
+    if (el.dataset.count === value) {
+      return;
     }
-    el.dataset.count = String(n);
+    el.textContent = n > 0 ? numberFormat.format(n) : '';
+    el.dataset.count = value;
     el.title = countLabel(n);
     el.setAttribute('aria-label', countLabel(n));
     el.classList.toggle('has-count', n > 0);
@@ -329,7 +385,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     const n =
       typeof raw === 'number' && isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
-    el.textContent = n.toLocaleString();
+    el.textContent = numberFormat.format(n);
     el.dataset.count = String(n);
     el.title = countLabel(n);
     el.setAttribute('aria-label', countLabel(n));
@@ -353,8 +409,8 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     for (let i = 0; i < ordered.length; i++) {
-      const nameEl = rows[i].querySelector('.user-name');
-      const countEl = rows[i].querySelector('.user-count');
+      const nameEl = rows[i].children[0];
+      const countEl = rows[i].children[1];
       if (!nameEl || !countEl || nameEl.textContent !== ordered[i]) {
         render();
         renderMuted();
@@ -368,8 +424,8 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     for (let j = 0; j < mutedUsers.length; j++) {
-      const nameEl = muteRows[j].querySelector('.user-name');
-      const countEl = muteRows[j].querySelector('.user-count');
+      const nameEl = muteRows[j].children[0];
+      const countEl = muteRows[j].children[1];
       if (!nameEl || !countEl || nameEl.textContent !== mutedUsers[j].name) {
         renderMuted();
         return;
@@ -503,8 +559,35 @@ document.addEventListener('DOMContentLoaded', function () {
       if (pruneRecentAdds()) {
         saveRecentAdds();
       }
-      render();
+      refreshHighlights();
     }, delay);
+  }
+
+  function applyHighlight(li, name, isRender) {
+    if (!isRecentlyAdded(name)) {
+      if (li.classList.contains('is-new')) {
+        li.classList.remove('is-new', 'is-fresh');
+        li.style.removeProperty('--hl-rgb');
+        li.style.removeProperty('--hl-strength');
+      }
+      return;
+    }
+    li.classList.add('is-new');
+    li.style.setProperty('--hl-rgb', highlightRgb(name));
+    li.style.setProperty('--hl-strength', String(highlightStrength(name)));
+    if (isRender && isFreshAdd(name)) {
+      li.classList.add('is-fresh');
+    } else if (!isRender) {
+      li.classList.remove('is-fresh');
+    }
+  }
+
+  // Updates the fading colors in place rather than rebuilding the whole list.
+  function refreshHighlights() {
+    listEl.querySelectorAll('.user-row.is-new').forEach(function (row) {
+      applyHighlight(row, row.firstElementChild.textContent, false);
+    });
+    scheduleHighlightExpiry();
   }
 
   function persistFilteringEnabled() {
@@ -526,61 +609,22 @@ document.addEventListener('DOMContentLoaded', function () {
       confirmingName = null;
     }
 
-    listEl.replaceChildren();
-    sortedBlockedUsers().forEach(function (name) {
-      const confirming = confirmingName !== null && sameName(name, confirmingName);
-      const li = document.createElement('li');
-      li.className = confirming ? 'user-row is-confirming' : 'user-row';
-      if (isRecentlyAdded(name)) {
-        li.classList.add('is-new');
-        li.style.setProperty('--hl-rgb', highlightRgb(name));
-        li.style.setProperty('--hl-strength', String(highlightStrength(name)));
-        if (isFreshAdd(name)) {
-          li.classList.add('is-fresh');
-        }
+    const ordered = sortedBlockedUsers();
+    const fragment = document.createDocumentFragment();
+    ordered.forEach(function (name) {
+      const li = BLOCK_ROW.cloneNode(true);
+      li.firstElementChild.textContent = name;
+      fillCount(li.children[1], name);
+      applyHighlight(li, name, true);
+      if (confirmingName !== null && sameName(name, confirmingName)) {
+        setRowConfirming(li, true);
+      } else {
+        li.lastElementChild.setAttribute('aria-label', 'Remove ' + name);
       }
-
-      const span = document.createElement('span');
-      span.className = 'user-name';
-      span.textContent = name;
-
-      const count = document.createElement('span');
-      count.className = 'user-count';
-      fillCount(count, name);
-
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'remove';
-      remove.append(confirming ? iconCheck() : iconX());
-      remove.setAttribute(
-        'aria-label',
-        confirming ? 'Confirm remove ' + name : 'Remove ' + name
-      );
-      remove.addEventListener('click', function (event) {
-        event.stopPropagation();
-        if (!confirming) {
-          confirmingName = name;
-          render();
-          const next = listEl.querySelector('.is-confirming .remove');
-          if (next) {
-            next.focus();
-          }
-          return;
-        }
-        const storageIndex = indexInBlockedUsers(name);
-        if (storageIndex >= 0) {
-          blockedUsers.splice(storageIndex, 1);
-        }
-        confirmingName = null;
-        clearResultNote();
-        forgetCount(name);
-        persist();
-        render();
-      });
-
-      li.append(span, count, remove);
-      listEl.append(li);
+      fragment.append(li);
     });
+    listEl.classList.toggle('is-long', ordered.length > LONG_LIST_ROWS);
+    listEl.replaceChildren(fragment);
 
     emptyEl.hidden = blockedUsers.length > 0;
     scheduleHighlightExpiry();
@@ -625,8 +669,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     const now = Date.now();
     for (let i = 0; i < mutedUsers.length; i++) {
-      const nameEl = rows[i].querySelector('.user-name');
-      const timeEl = rows[i].querySelector('.mute-remaining');
+      const nameEl = rows[i].children[0];
+      const timeEl = rows[i].children[2];
       if (!nameEl || !timeEl || nameEl.textContent !== mutedUsers[i].name) {
         renderMuted();
         return;
@@ -641,37 +685,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     expireDueMutes();
     const now = Date.now();
-    mutedListEl.replaceChildren();
+    const fragment = document.createDocumentFragment();
     mutedUsers.forEach(function (entry) {
-      const li = document.createElement('li');
-      li.className = 'user-row mute-row';
-
-      const span = document.createElement('span');
-      span.className = 'user-name';
-      span.textContent = entry.name;
-
-      const count = document.createElement('span');
-      count.className = 'user-count';
-      fillCount(count, entry.name);
-
-      const time = document.createElement('span');
-      time.className = 'mute-remaining';
-      time.textContent = formatRemaining(entry.until - now);
-      time.title = 'Time remaining';
-
-      const unmute = document.createElement('button');
-      unmute.type = 'button';
-      unmute.className = 'unmute';
-      unmute.textContent = 'Unmute';
-      unmute.setAttribute('aria-label', 'Unmute ' + entry.name);
-      unmute.addEventListener('click', function (event) {
-        event.stopPropagation();
-        unmuteUser(entry.name);
-      });
-
-      li.append(span, count, time, unmute);
-      mutedListEl.append(li);
+      const li = MUTE_ROW.cloneNode(true);
+      const parts = li.children;
+      parts[0].textContent = entry.name;
+      fillCount(parts[1], entry.name);
+      parts[2].textContent = formatRemaining(entry.until - now);
+      parts[3].setAttribute('aria-label', 'Unmute ' + entry.name);
+      fragment.append(li);
     });
+    mutedListEl.classList.toggle('is-long', mutedUsers.length > LONG_LIST_ROWS);
+    mutedListEl.replaceChildren(fragment);
 
     mutedEmptyEl.hidden = mutedUsers.length > 0;
     syncMuteTimer();
@@ -953,6 +978,42 @@ document.addEventListener('DOMContentLoaded', function () {
     input.focus();
   }
 
+  // One delegated handler for every row's remove button (rows are rebuilt on each render).
+  listEl.addEventListener('click', function (event) {
+    const remove = event.target.closest('.remove');
+    if (!remove) {
+      return;
+    }
+    event.stopPropagation();
+    const row = remove.parentElement;
+    const name = row.firstElementChild.textContent;
+    if (!row.classList.contains('is-confirming')) {
+      clearConfirming();
+      confirmingName = name;
+      setRowConfirming(row, true);
+      remove.focus();
+      return;
+    }
+    const storageIndex = indexInBlockedUsers(name);
+    if (storageIndex >= 0) {
+      blockedUsers.splice(storageIndex, 1);
+    }
+    confirmingName = null;
+    clearResultNote();
+    forgetCount(name);
+    persist();
+    render();
+  });
+
+  mutedListEl.addEventListener('click', function (event) {
+    const unmute = event.target.closest('.unmute');
+    if (!unmute) {
+      return;
+    }
+    event.stopPropagation();
+    unmuteUser(unmute.parentElement.firstElementChild.textContent);
+  });
+
   document.addEventListener('click', function (event) {
     if (confirmingName === null) {
       return;
@@ -1081,7 +1142,8 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       if (changes.blockListSort) {
         const next = changes.blockListSort.newValue;
-        if (typeof next === 'string' && SORT_MODES.indexOf(next) !== -1) {
+        // Skip the echo of this popup's own sort change; it already rendered.
+        if (typeof next === 'string' && SORT_MODES.indexOf(next) !== -1 && next !== listSort) {
           listSort = next;
           syncSortCycleUI();
           render();
@@ -1112,8 +1174,15 @@ document.addEventListener('DOMContentLoaded', function () {
       onError: showSaveError
     });
     watchStorage();
-    chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled', 'showChatControls', 'recentAdds', 'blockListSort', 'popupTheme']), function (result) {
-      if (chrome.runtime.lastError) {
+    // popup-boot.js started this read in <head>; fall back to reading here if it didn't run.
+    const initialRead = RCB.popupInitialRead || new Promise(function (resolve) {
+      chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled', 'showChatControls', 'recentAdds', 'blockListSort', 'popupTheme']), function (result) {
+        resolve({ result: result, failed: !!chrome.runtime.lastError });
+      });
+    });
+    initialRead.then(function (read) {
+      const result = read.result;
+      if (read.failed) {
         showSaveError();
         syncFilteringEnabledUI();
         render();
@@ -1186,6 +1255,12 @@ document.addEventListener('DOMContentLoaded', function () {
   function applyTheme(value) {
     theme = THEME_ORDER.indexOf(value) !== -1 ? value : 'dark';
     renderTheme();
+    // Mirror for popup-boot.js, which reads it synchronously so the next open paints in this theme.
+    try {
+      localStorage.setItem('rcbPopupTheme', theme);
+    } catch (err) {
+      // Storage unavailable; the popup still applies the theme after chrome.storage loads.
+    }
   }
 
   if (systemLightQuery) {
