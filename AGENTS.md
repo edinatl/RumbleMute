@@ -53,7 +53,7 @@ When Rumble changes HTML, fix selectors here first.
 - **`manifest.json`**: strict JSON only. **`popup.html`**: must not start with non-HTML lines (e.g. `// filename` breaks parsing).
 - **`permissions`**: currently only `storage`; avoid expanding permissions without a clear need.
 - Icons live under `images/` (16, 48, 128); referenced from `manifest.json` and `action.default_icon`.
-- `design/` holds source artwork (e.g. `icon-source.png`). It is not referenced by the extension and **must be excluded when packaging** (exclude the whole folder from the zip).
+- `images/icon-source.png` is the master icon artwork. It is not referenced by `manifest.json`, so it is not needed at runtime; exclude it when packaging if you want a smaller zip.
 
 ## Git / release
 
