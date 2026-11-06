@@ -799,7 +799,51 @@
     };
   }
 
+  // recentAdds: countKey -> ms timestamp of a name added to the block list.
+  // Entries older than RECENT_ADD_MS are dropped.
+  const RECENT_ADD_MS = 24 * 60 * 60 * 1000;
+
+  // Drops stale or invalid entries in place; returns true if anything was removed.
+  function pruneRecentAdds(adds, now) {
+    const cutoff = now - RECENT_ADD_MS;
+    let changed = false;
+    Object.keys(adds).forEach(function (key) {
+      if (typeof adds[key] !== 'number' || adds[key] <= cutoff) {
+        delete adds[key];
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  // Union of stored and local stamps (newest wins per key), pruned to the window.
+  function mergeRecentAdds(stored, local) {
+    const out = Object.assign({}, stored);
+    Object.keys(local).forEach(function (key) {
+      const at = local[key];
+      if (typeof at === 'number' && !(typeof out[key] === 'number' && out[key] >= at)) {
+        out[key] = at;
+      }
+    });
+    pruneRecentAdds(out, Date.now());
+    return out;
+  }
+
+  function sameRecentAdds(a, b) {
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) {
+      return false;
+    }
+    return keys.every(function (key) {
+      return a[key] === b[key];
+    });
+  }
+
   root.RCB = {
+    RECENT_ADD_MS: RECENT_ADD_MS,
+    pruneRecentAdds: pruneRecentAdds,
+    mergeRecentAdds: mergeRecentAdds,
+    sameRecentAdds: sameRecentAdds,
     MAX_NAME_LENGTH: MAX_NAME_LENGTH,
     MAX_BLOCKED: MAX_BLOCKED,
     MAX_MUTED: MAX_MUTED,

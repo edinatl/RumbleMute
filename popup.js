@@ -26,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const clearConfirmEl = document.getElementById('clear-confirm');
   const clearCancelBtn = document.getElementById('clear-cancel');
   const clearYesBtn = document.getElementById('clear-yes');
-  const NEW_HIGHLIGHT_MS = 24 * 60 * 60 * 1000;
+  const NEW_HIGHLIGHT_MS = RCB.RECENT_ADD_MS;
   const sortCycleBtn = document.getElementById('cycle-sort');
 
   const SORT_MODES = ['count', 'alpha', 'newest', 'native'];
@@ -468,21 +468,26 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function pruneRecentAdds() {
-    const cutoff = Date.now() - NEW_HIGHLIGHT_MS;
-    let changed = false;
-    Object.keys(recentAdds).forEach(function (key) {
-      if (typeof recentAdds[key] !== 'number' || recentAdds[key] <= cutoff) {
-        delete recentAdds[key];
-        changed = true;
-      }
-    });
-    return changed;
+    return RCB.pruneRecentAdds(recentAdds, Date.now());
   }
 
-  function saveRecentAdds() {
-    if (hasChromeApi('storage') && chrome.storage.local) {
-      chrome.storage.local.set({ recentAdds: recentAdds });
+  // Merges with the stored map first: content.js may have stamped a name since
+  // our last read, and a plain overwrite would erase it. Pass replace=true only
+  // when the map must be emptied outright (Clear highlights).
+  function saveRecentAdds(replace) {
+    if (!hasChromeApi('storage') || !chrome.storage.local) {
+      return;
     }
+    if (replace) {
+      chrome.storage.local.set({ recentAdds: recentAdds });
+      return;
+    }
+    chrome.storage.local.get('recentAdds', function (result) {
+      const stored = result && result.recentAdds;
+      recentAdds = RCB.mergeRecentAdds(stored && typeof stored === 'object' ? stored : {}, recentAdds);
+      chrome.storage.local.set({ recentAdds: recentAdds });
+      render();
+    });
   }
 
   function isRecentlyAdded(name) {
@@ -1140,6 +1145,18 @@ document.addEventListener('DOMContentLoaded', function () {
       if (changes.popupTheme) {
         applyTheme(changes.popupTheme.newValue);
       }
+      if (changes.recentAdds) {
+        // Written by content.js when a row's Block button is used; keep our copy in sync
+        // so a later saveRecentAdds() here doesn't overwrite it.
+        const storedAdds = changes.recentAdds.newValue;
+        const nextAdds = storedAdds && typeof storedAdds === 'object' ? storedAdds : {};
+        // Skip the echo of this popup's own write; nothing changed.
+        if (!RCB.sameRecentAdds(nextAdds, recentAdds)) {
+          recentAdds = Object.assign({}, nextAdds);
+          scheduleHighlightExpiry();
+          render();
+        }
+      }
       if (changes.blockListSort) {
         const next = changes.blockListSort.newValue;
         // Skip the echo of this popup's own sort change; it already rendered.
@@ -1332,7 +1349,7 @@ document.addEventListener('DOMContentLoaded', function () {
     blockedUsers = [];
     confirmingName = null;
     recentAdds = {};
-    saveRecentAdds();
+    saveRecentAdds(true);
     clearResultNote();
     render();
     persist();
@@ -1348,7 +1365,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.getElementById('clear-highlights').addEventListener('click', function () {
     recentAdds = {};
-    saveRecentAdds();
+    saveRecentAdds(true);
     render();
     setMenuOpen(false);
   });

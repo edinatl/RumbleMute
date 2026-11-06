@@ -116,6 +116,26 @@ function touch() {
   memoryDirty = true;
 }
 
+// Stamp a name in recentAdds so the popup shows its green "new" highlight.
+// Merges with what is stored so concurrent popup writes are not lost.
+function recordRecentAdd(name) {
+  const key = RCB.countKey(name);
+  if (!key || !extensionAlive() || !chrome.storage || !chrome.storage.local) {
+    return;
+  }
+  chrome.storage.local.get('recentAdds', function (result) {
+    if (!extensionAlive()) {
+      return;
+    }
+    const stored = result && result.recentAdds;
+    const local = {};
+    local[key] = Date.now();
+    chrome.storage.local.set({
+      recentAdds: RCB.mergeRecentAdds(stored && typeof stored === 'object' ? stored : {}, local)
+    });
+  });
+}
+
 function rebuildCountedMap() {
   countedById = Object.create(null);
   countedMessages.forEach(function (pair) {
@@ -374,6 +394,7 @@ function blockUsername(raw) {
   removeMuted(name);
   blockedUsers = blockedUsers.concat([name]);
   invalidateKeyMaps();
+  recordRecentAdd(name);
   touch();
   processChatMessages({ fullScan: true });
 }
