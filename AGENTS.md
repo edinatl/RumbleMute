@@ -1,4 +1,4 @@
-# Agent notes — Rumble Chat Blocker
+# Agent notes — RumbleMute
 
 Brief context for automated or human helpers working in this repo.
 

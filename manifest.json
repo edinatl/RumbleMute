@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Rumble Chat Blocker",
+  "name": "RumbleMute",
   "version": "1.2.1",
   "description": "Block or temporarily mute specific users in Rumble livestream chats",
   "permissions": ["storage"],

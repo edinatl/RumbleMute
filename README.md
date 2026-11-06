@@ -1,4 +1,4 @@
-# Rumble Chat Blocker
+# RumbleMute
 
 Chrome extension (Manifest V3) that hides chat messages from specific usernames on [Rumble](https://rumble.com) livestreams.
 
