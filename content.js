@@ -7,6 +7,7 @@ let countedMessages = [];
 let countedById = Object.create(null);
 let countResetNonce = 0;
 let filteringEnabled = true;
+let showChatControls = true;
 let memoryDirty = false;
 let storageSync = null;
 
@@ -766,6 +767,15 @@ function syncRowControls(message) {
     return;
   }
   let controls = message.querySelector('.rcb-controls');
+  if (!showChatControls) {
+    if (controls) {
+      if (openMenuRow === message) {
+        closeMuteMenu(false);
+      }
+      controls.remove();
+    }
+    return;
+  }
   if (!controls) {
     message.dataset.blockerProcessed = 'true';
     controls = createControls(message);
@@ -866,7 +876,7 @@ function processRow(message, fullScan, now) {
     !fullScan &&
     message.dataset.blockerProcessed === 'true' &&
     seen === nameKey &&
-    (controls || !username)
+    (controls || !username || !showChatControls)
   ) {
     if (controls && username) {
       updateControlLabels(controls, username, message);
@@ -1076,8 +1086,13 @@ chrome.storage.onChanged.addListener(function (changes, areaName) {
   if (areaName !== 'local' || !storageSync) {
     return;
   }
-  if (changes.filteringEnabled) {
-    filteringEnabled = changes.filteringEnabled.newValue !== false;
+  if (changes.filteringEnabled || changes.showChatControls) {
+    if (changes.filteringEnabled) {
+      filteringEnabled = changes.filteringEnabled.newValue !== false;
+    }
+    if (changes.showChatControls) {
+      showChatControls = changes.showChatControls.newValue !== false;
+    }
     processChatMessages({ fullScan: true });
   }
   if (
@@ -1092,12 +1107,13 @@ chrome.storage.onChanged.addListener(function (changes, areaName) {
   }
 });
 
-chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled']), function (result) {
+chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled', 'showChatControls']), function (result) {
   if (chrome.runtime.lastError) {
     startAfterStorageReady();
     return;
   }
   filteringEnabled = !result || result.filteringEnabled !== false;
+  showChatControls = !result || result.showChatControls !== false;
   storageSync.start(result || {});
   storageSync.handleExternal();
   startAfterStorageReady();

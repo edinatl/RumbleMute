@@ -30,7 +30,7 @@ There is **no background service worker**. Saving from a non-Rumble active tab s
 ### Storage keys (`chrome.storage.local`)
 
 - Synced state (in `RCB.STORAGE_FIELDS`): `blockedUsers`, `mutedUsers`, `blockedUserCounts`, `blockedCount`, `countedMessages`, `countResetNonce`.
-- Settings: `filteringEnabled` (popup toggle; absent or `true` means on), `blockListSort` (popup sort mode).
+- Settings: `filteringEnabled` (popup toggle; absent or `true` means on), `showChatControls` (popup checkbox; absent or `true` shows the in-chat Block/Mute buttons; now an eye icon in the popup footer), `recentAdds` (count key to timestamp; popup-added names get a highlighted row for 24 hours: green for 5 min, fading to yellow at 30 min, orange at 2 h, red at 3 h and after; the tint fades left to right across the row, and its opacity eases down from 3 h so it dissolves by 24 h; "Clear highlights" in the three-dot menu empties it), `blockListSort` (popup sort mode), `popupTheme` (`dark`, `light`, or `system`; absent means dark; `system` follows `prefers-color-scheme` live; cycled from the popup's three-dot menu).
 - Sync advisory lock: `syncLock` (owner token), `syncLockUntil` (expiry ms). Advisory only: `createSync` takes it best-effort, and correctness comes from `mergeAll`, not the lock. Stale locks expire on their own.
 - `countedMessages` de-duplicates hidden-message counts by message id, capped by `MAX_COUNTED`. `countResetNonce` marks a Reset so other tabs apply it.
 - Synced state is written through `createSync` (read, merge against the last baseline, write, re-read). Don't write those keys directly from new code. Settings keys are written directly.

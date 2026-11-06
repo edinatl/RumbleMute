@@ -11,7 +11,7 @@ The extension saves the following **only on your own computer**, in Chrome's loc
 - The usernames you block or mute, and when each mute ends
 - How many messages from each listed user have been hidden, plus a running total
 - The ids of recently hidden chat messages, so the same message is not counted twice
-- Your settings (whether filtering is on, and how the block list is sorted)
+- Your settings (whether filtering is on, and how the block list is sorted, and whether the popup uses light, dark, or your system's theme)
 
 ## What it does not do
 

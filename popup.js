@@ -13,7 +13,20 @@ document.addEventListener('DOMContentLoaded', function () {
   const pasteList = document.getElementById('paste-list');
   const addList = document.getElementById('add-list');
   const cancelPaste = document.getElementById('cancel-paste');
+  const toggleEdit = document.getElementById('toggle-edit');
+  const editPanel = document.getElementById('edit-panel');
+  const editList = document.getElementById('edit-list');
+  const saveEdit = document.getElementById('save-edit');
+  const cancelEdit = document.getElementById('cancel-edit');
   const toggleEnabled = document.getElementById('toggle-enabled');
+  const showControlsInput = document.getElementById('show-chat-controls');
+  const moreMenuBtn = document.getElementById('more-menu-btn');
+  const moreMenu = document.getElementById('more-menu');
+  const clearListBtn = document.getElementById('clear-list');
+  const clearConfirmEl = document.getElementById('clear-confirm');
+  const clearCancelBtn = document.getElementById('clear-cancel');
+  const clearYesBtn = document.getElementById('clear-yes');
+  const NEW_HIGHLIGHT_MS = 24 * 60 * 60 * 1000;
   const sortCycleBtn = document.getElementById('cycle-sort');
 
   const SORT_MODES = ['count', 'alpha', 'newest', 'native'];
@@ -36,6 +49,9 @@ document.addEventListener('DOMContentLoaded', function () {
   let storageSync = null;
   let confirmingName = null;
   let filteringEnabled = true;
+  let showChatControls = true;
+  let recentAdds = {};
+  let highlightTimer = null;
   let muteTimer = null;
   let copyTimer = null;
 
@@ -383,6 +399,114 @@ document.addEventListener('DOMContentLoaded', function () {
     );
   }
 
+  function syncShowControlsUI() {
+    if (!showControlsInput) {
+      return;
+    }
+    const label = showChatControls
+      ? 'Chat Block/Mute buttons shown. Click to hide.'
+      : 'Chat Block/Mute buttons hidden. Click to show.';
+    showControlsInput.setAttribute('aria-pressed', showChatControls ? 'true' : 'false');
+    showControlsInput.title = label;
+    showControlsInput.setAttribute('aria-label', label);
+  }
+
+  function pruneRecentAdds() {
+    const cutoff = Date.now() - NEW_HIGHLIGHT_MS;
+    let changed = false;
+    Object.keys(recentAdds).forEach(function (key) {
+      if (typeof recentAdds[key] !== 'number' || recentAdds[key] <= cutoff) {
+        delete recentAdds[key];
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function saveRecentAdds() {
+    if (hasChromeApi('storage') && chrome.storage.local) {
+      chrome.storage.local.set({ recentAdds: recentAdds });
+    }
+  }
+
+  function isRecentlyAdded(name) {
+    const at = recentAdds[countKey(name)];
+    return typeof at === 'number' && Date.now() - at < NEW_HIGHLIGHT_MS;
+  }
+
+  // Age -> RGB stops: green for 5 min, fading to yellow (30 min), orange (2 h),
+  // red (3 h), then red until the highlight expires (24 h).
+  const HIGHLIGHT_STOPS = [
+    { at: 0, rgb: [143, 206, 74] },
+    { at: 5 * 60 * 1000, rgb: [143, 206, 74] },
+    { at: 30 * 60 * 1000, rgb: [235, 200, 50] },
+    { at: 2 * 60 * 60 * 1000, rgb: [240, 150, 40] },
+    { at: 3 * 60 * 60 * 1000, rgb: [225, 70, 60] }
+  ];
+
+  function highlightRgb(name) {
+    const age = Math.max(0, Date.now() - recentAdds[countKey(name)]);
+    const last = HIGHLIGHT_STOPS[HIGHLIGHT_STOPS.length - 1];
+    if (age >= last.at) {
+      return last.rgb.join(', ');
+    }
+    for (let i = 1; i < HIGHLIGHT_STOPS.length; i++) {
+      const b = HIGHLIGHT_STOPS[i];
+      if (age <= b.at) {
+        const a = HIGHLIGHT_STOPS[i - 1];
+        const t = (age - a.at) / (b.at - a.at);
+        return a.rgb.map(function (c, k) {
+          return Math.round(c + (b.rgb[k] - c) * t);
+        }).join(', ');
+      }
+    }
+    return last.rgb.join(', ');
+  }
+
+  // Opacity multiplier: full for the first 3 h, then easing down so the
+  // highlight dissolves instead of vanishing when it expires at 24 h.
+  const HIGHLIGHT_FADE_FROM = 3 * 60 * 60 * 1000;
+  const HIGHLIGHT_MIN_STRENGTH = 0.12;
+
+  function highlightStrength(name) {
+    const age = Math.max(0, Date.now() - recentAdds[countKey(name)]);
+    if (age <= HIGHLIGHT_FADE_FROM) {
+      return 1;
+    }
+    const t = Math.min(1, (age - HIGHLIGHT_FADE_FROM) / (NEW_HIGHLIGHT_MS - HIGHLIGHT_FADE_FROM));
+    const eased = 1 - Math.pow(1 - t, 2);
+    return Math.round((1 - (1 - HIGHLIGHT_MIN_STRENGTH) * eased) * 100) / 100;
+  }
+
+  // Rows added in the last moment get a one-time sweep-in animation.
+  const HIGHLIGHT_FRESH_MS = 1500;
+
+  function isFreshAdd(name) {
+    return Date.now() - recentAdds[countKey(name)] < HIGHLIGHT_FRESH_MS;
+  }
+
+  function scheduleHighlightExpiry() {
+    if (highlightTimer !== null) {
+      clearTimeout(highlightTimer);
+      highlightTimer = null;
+    }
+    const times = Object.keys(recentAdds).map(function (key) {
+      return recentAdds[key] + NEW_HIGHLIGHT_MS;
+    });
+    if (times.length === 0) {
+      return;
+    }
+    // Re-render at least once a minute so the color keeps fading.
+    const delay = Math.max(1000, Math.min(60000, Math.min.apply(null, times) - Date.now() + 50));
+    highlightTimer = setTimeout(function () {
+      highlightTimer = null;
+      if (pruneRecentAdds()) {
+        saveRecentAdds();
+      }
+      render();
+    }, delay);
+  }
+
   function persistFilteringEnabled() {
     syncFilteringEnabledUI();
     if (!hasChromeApi('storage') || !chrome.storage.local) {
@@ -407,11 +531,18 @@ document.addEventListener('DOMContentLoaded', function () {
       const confirming = confirmingName !== null && sameName(name, confirmingName);
       const li = document.createElement('li');
       li.className = confirming ? 'user-row is-confirming' : 'user-row';
+      if (isRecentlyAdded(name)) {
+        li.classList.add('is-new');
+        li.style.setProperty('--hl-rgb', highlightRgb(name));
+        li.style.setProperty('--hl-strength', String(highlightStrength(name)));
+        if (isFreshAdd(name)) {
+          li.classList.add('is-fresh');
+        }
+      }
 
       const span = document.createElement('span');
       span.className = 'user-name';
       span.textContent = name;
-      span.title = name;
 
       const count = document.createElement('span');
       count.className = 'user-count';
@@ -452,6 +583,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     emptyEl.hidden = blockedUsers.length > 0;
+    scheduleHighlightExpiry();
     syncSortCycleUI();
     syncCopyButton();
   }
@@ -517,7 +649,6 @@ document.addEventListener('DOMContentLoaded', function () {
       const span = document.createElement('span');
       span.className = 'user-name';
       span.textContent = entry.name;
-      span.title = entry.name;
 
       const count = document.createElement('span');
       count.className = 'user-count';
@@ -619,6 +750,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       existing.add(key);
       blockedUsers.push(name);
+      recentAdds[countKey(name)] = Date.now();
       added += 1;
     });
     // A person is on at most one list: blocking drops any timed mute for that name.
@@ -632,6 +764,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     if (added > 0) {
+      saveRecentAdds();
       render();
       if (mutesChanged) {
         renderMuted();
@@ -646,7 +779,95 @@ document.addEventListener('DOMContentLoaded', function () {
     return added;
   }
 
+  function setEditOpen(open) {
+    editPanel.hidden = !open;
+    toggleEdit.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggleEdit.classList.toggle('is-open', open);
+    const label = open ? 'Hide list editor' : 'Edit list as text';
+    toggleEdit.title = label;
+    toggleEdit.setAttribute('aria-label', label);
+    if (open) {
+      setPasteOpen(false);
+      editList.value = blockedUsers.join('\n');
+      editList.focus();
+    }
+  }
+
+  function saveEditedList() {
+    const seen = new Set();
+    const next = [];
+    let hitLimit = false;
+    String(editList.value).split(/[\n,;]+/).forEach(function (part) {
+      const name = normalizeEntry(part);
+      if (!name) {
+        return;
+      }
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+      if (next.length >= RCB.MAX_BLOCKED) {
+        hitLimit = true;
+        return;
+      }
+      seen.add(key);
+      next.push(name);
+    });
+
+    const before = blockedKeySet();
+    let added = 0;
+    let removed = 0;
+    next.forEach(function (name) {
+      if (!before.has(name.toLowerCase())) {
+        added += 1;
+        recentAdds[countKey(name)] = Date.now();
+      }
+    });
+    blockedUsers.forEach(function (name) {
+      if (!seen.has(name.toLowerCase())) {
+        removed += 1;
+        forgetCount(name);
+      }
+    });
+
+    blockedUsers = next;
+    confirmingName = null;
+    const mutesChanged = added > 0 && stripMutesNowBlocked();
+
+    const parts = [];
+    if (added) {
+      parts.push('Added ' + added + '.');
+    }
+    if (removed) {
+      parts.push('Removed ' + removed + '.');
+    }
+    if (hitLimit) {
+      parts.push('The block list is full.');
+    }
+    if (parts.length) {
+      resultNote.textContent = parts.join(' ');
+      resultNote.hidden = false;
+    } else {
+      clearResultNote();
+    }
+
+    if (added > 0) {
+      saveRecentAdds();
+    }
+    if (added > 0 || removed > 0) {
+      render();
+      if (mutesChanged) {
+        renderMuted();
+      }
+      persist();
+    }
+    setEditOpen(false);
+  }
+
   function setPasteOpen(open) {
+    if (open && editPanel && !editPanel.hidden) {
+      setEditOpen(false);
+    }
     pastePanel.hidden = !open;
     togglePaste.setAttribute('aria-expanded', open ? 'true' : 'false');
     togglePaste.classList.toggle('is-open', open);
@@ -779,6 +1000,25 @@ document.addEventListener('DOMContentLoaded', function () {
     setPasteOpen(pastePanel.hidden);
   });
 
+  toggleEdit.addEventListener('click', function () {
+    setEditOpen(editPanel.hidden);
+  });
+
+  cancelEdit.addEventListener('click', function () {
+    setEditOpen(false);
+    input.focus();
+  });
+
+  saveEdit.addEventListener('click', saveEditedList);
+
+  editList.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
+    saveEdit.click();
+  });
+
   if (copyList) {
     copyList.addEventListener('click', copyBlocklist);
   }
@@ -832,6 +1072,13 @@ document.addEventListener('DOMContentLoaded', function () {
         filteringEnabled = changes.filteringEnabled.newValue !== false;
         syncFilteringEnabledUI();
       }
+      if (changes.showChatControls) {
+        showChatControls = changes.showChatControls.newValue !== false;
+        syncShowControlsUI();
+      }
+      if (changes.popupTheme) {
+        applyTheme(changes.popupTheme.newValue);
+      }
       if (changes.blockListSort) {
         const next = changes.blockListSort.newValue;
         if (typeof next === 'string' && SORT_MODES.indexOf(next) !== -1) {
@@ -865,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', function () {
       onError: showSaveError
     });
     watchStorage();
-    chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled', 'blockListSort']), function (result) {
+    chrome.storage.local.get(RCB.STORAGE_FIELDS.concat(['filteringEnabled', 'showChatControls', 'recentAdds', 'blockListSort', 'popupTheme']), function (result) {
       if (chrome.runtime.lastError) {
         showSaveError();
         syncFilteringEnabledUI();
@@ -875,6 +1122,16 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
       }
       filteringEnabled = !result || result.filteringEnabled !== false;
+      showChatControls = !result || result.showChatControls !== false;
+      syncShowControlsUI();
+      applyTheme(result && result.popupTheme);
+      const storedAdds = result && result.recentAdds;
+      if (storedAdds && typeof storedAdds === 'object' && !Array.isArray(storedAdds)) {
+        recentAdds = Object.assign({}, storedAdds);
+        if (pruneRecentAdds()) {
+          saveRecentAdds();
+        }
+      }
       const storedSort = result && result.blockListSort;
       if (typeof storedSort === 'string' && SORT_MODES.indexOf(storedSort) !== -1) {
         listSort = storedSort;
@@ -892,12 +1149,134 @@ document.addEventListener('DOMContentLoaded', function () {
 
   window.addEventListener('pagehide', stopMuteTimer);
 
+  if (showControlsInput) {
+    showControlsInput.addEventListener('click', function () {
+      showChatControls = !showChatControls;
+      syncShowControlsUI();
+      if (!hasChromeApi('storage') || !chrome.storage.local) {
+        return;
+      }
+      chrome.storage.local.set({ showChatControls: showChatControls }, function () {
+        if (chrome.runtime.lastError) {
+          showSaveError();
+        }
+      });
+    });
+  }
+
+  const themeBtn = document.getElementById('toggle-theme');
+  // Stored preference: 'dark', 'light', or 'system'. Absent means dark.
+  const THEME_ORDER = ['dark', 'light', 'system'];
+  const THEME_LABELS = { dark: 'Dark', light: 'Light', system: 'System' };
+  const systemLightQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  let theme = 'dark';
+
+  function resolvedTheme() {
+    if (theme === 'system') {
+      return systemLightQuery && systemLightQuery.matches ? 'light' : 'dark';
+    }
+    return theme;
+  }
+
+  function renderTheme() {
+    document.documentElement.setAttribute('data-theme', resolvedTheme());
+    themeBtn.textContent = 'Theme: ' + THEME_LABELS[theme];
+  }
+
+  function applyTheme(value) {
+    theme = THEME_ORDER.indexOf(value) !== -1 ? value : 'dark';
+    renderTheme();
+  }
+
+  if (systemLightQuery) {
+    const onSystemThemeChange = function () {
+      if (theme === 'system') {
+        renderTheme();
+      }
+    };
+    if (systemLightQuery.addEventListener) {
+      systemLightQuery.addEventListener('change', onSystemThemeChange);
+    } else if (systemLightQuery.addListener) {
+      systemLightQuery.addListener(onSystemThemeChange);
+    }
+  }
+
+  // Cycles Dark -> Light -> System. The menu stays open so the user can keep clicking.
+  themeBtn.addEventListener('click', function () {
+    applyTheme(THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length]);
+    if (hasChromeApi('storage') && chrome.storage.local) {
+      chrome.storage.local.set({ popupTheme: theme }, function () {
+        if (chrome.runtime.lastError) {
+          showSaveError();
+        }
+      });
+    }
+  });
+
+  function setMenuOpen(open) {
+    moreMenu.hidden = !open;
+    moreMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) {
+      clearConfirmEl.hidden = true;
+      clearListBtn.hidden = false;
+    }
+  }
+
+  moreMenuBtn.addEventListener('click', function (event) {
+    event.stopPropagation();
+    setMenuOpen(moreMenu.hidden);
+  });
+
+  moreMenu.addEventListener('click', function (event) {
+    event.stopPropagation();
+  });
+
+  document.addEventListener('click', function () {
+    setMenuOpen(false);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      setMenuOpen(false);
+    }
+  });
+
+  clearListBtn.addEventListener('click', function () {
+    clearListBtn.hidden = true;
+    clearConfirmEl.hidden = false;
+    clearCancelBtn.focus();
+  });
+
+  clearCancelBtn.addEventListener('click', function () {
+    setMenuOpen(false);
+    moreMenuBtn.focus();
+  });
+
+  clearYesBtn.addEventListener('click', function () {
+    blockedUsers.forEach(forgetCount);
+    blockedUsers = [];
+    confirmingName = null;
+    recentAdds = {};
+    saveRecentAdds();
+    clearResultNote();
+    render();
+    persist();
+    setMenuOpen(false);
+  });
+
   if (toggleEnabled) {
     toggleEnabled.addEventListener('click', function () {
       filteringEnabled = !filteringEnabled;
       persistFilteringEnabled();
     });
   }
+
+  document.getElementById('clear-highlights').addEventListener('click', function () {
+    recentAdds = {};
+    saveRecentAdds();
+    render();
+    setMenuOpen(false);
+  });
 
   document.getElementById('reset-counter').addEventListener('click', function () {
     blockedCount = 0;
@@ -906,5 +1285,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (storageSync) {
       storageSync.schedule();
     }
+    setMenuOpen(false);
   });
 });

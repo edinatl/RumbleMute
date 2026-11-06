@@ -8,6 +8,7 @@
   vertical-align: middle;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 0.12s ease;
 }
 
 li.chat-history--row.js-chat-history-item:hover .rcb-controls,
@@ -27,22 +28,41 @@ li.chat-history--row.js-chat-history-item.rcb-menu-open .rcb-controls {
   align-items: center;
   box-sizing: border-box;
   margin: 0;
-  padding: 0 5px;
+  padding: 0 6px;
   height: 18px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(16, 18, 22, 0.92);
-  color: #eceef2;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(16, 18, 22, 0.88);
+  color: #d9dde4;
   font: 600 10px/18px system-ui, -apple-system, "Segoe UI", sans-serif;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   text-transform: none;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   vertical-align: middle;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
 
 .rcb-controls > button.rcb-btn:hover {
-  border-color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(30, 34, 42, 0.95);
+  color: #ffffff;
+}
+
+.rcb-controls > button.rcb-btn:active {
+  transform: scale(0.95);
+}
+
+.rcb-controls > button.rcb-block:hover {
+  border-color: rgba(255, 160, 160, 0.6);
+  background: rgba(255, 90, 90, 0.18);
+  color: #ffc9c9;
+}
+
+.rcb-controls > button.rcb-mute:hover {
+  border-color: rgba(243, 212, 138, 0.6);
+  background: rgba(243, 200, 90, 0.16);
+  color: #f3d48a;
 }
 
 .rcb-controls > button.rcb-btn:focus-visible {
@@ -52,11 +72,13 @@ li.chat-history--row.js-chat-history-item.rcb-menu-open .rcb-controls {
 
 button.rcb-mute.is-on {
   border-color: rgba(243, 212, 138, 0.7);
+  background: rgba(243, 200, 90, 0.16);
   color: #f3d48a;
 }
 
 button.rcb-block.is-on {
   border-color: rgba(255, 160, 160, 0.6);
+  background: rgba(255, 90, 90, 0.18);
   color: #ffc9c9;
 }
 
@@ -65,13 +87,14 @@ button.rcb-block.is-on {
   z-index: 2147483646;
   width: 196px;
   padding: 8px;
-  background: #1a1d24;
+  background: #1c2027;
   color: #eceef2;
-  border: 1px solid #454c5a;
-  border-radius: 8px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  border: 1px solid #3d434f;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 6px rgba(0, 0, 0, 0.35), 0 16px 32px -8px rgba(0, 0, 0, 0.6);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 12px;
+  animation: rcb-pop-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .rcb-menu-grid {
@@ -84,19 +107,27 @@ button.rcb-block.is-on {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
-  padding: 5px 6px;
-  border-radius: 4px;
-  border: 1px solid #2c313b;
-  background: #101216;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #2a2f38;
+  background: #12151a;
   color: #eceef2;
   font: 600 11px/1.2 system-ui, sans-serif;
   cursor: pointer;
   text-align: center;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .rcb-menu button.rcb-preset:hover {
-  border-color: #8fce4a;
+  border-color: rgba(143, 206, 74, 0.55);
+  background: rgba(143, 206, 74, 0.12);
   color: #c8eea3;
+}
+
+.rcb-menu button.rcb-preset:focus-visible,
+.rcb-menu-custom button:focus-visible {
+  outline: 2px solid #8fce4a;
+  outline-offset: 1px;
 }
 
 .rcb-menu-custom {
@@ -109,21 +140,28 @@ button.rcb-block.is-on {
   flex: 1;
   min-width: 0;
   margin: 0;
-  padding: 5px 6px;
-  border-radius: 4px;
-  border: 1px solid #2c313b;
-  background: #101216;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid #2a2f38;
+  background: #12151a;
   color: #eceef2;
   font: 12px/1.2 system-ui, sans-serif;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.rcb-menu-custom input:focus {
+  outline: none;
+  border-color: #8fce4a;
+  box-shadow: 0 0 0 3px rgba(143, 206, 74, 0.28);
 }
 
 .rcb-menu-custom button {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
-  padding: 5px 8px;
+  padding: 5px 9px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #8fce4a;
   color: #14210a;
   font: 700 11px/1.2 system-ui, sans-serif;
@@ -146,14 +184,37 @@ button.rcb-block.is-on {
   max-height: 160px;
   overflow: auto;
   margin: 0;
-  padding: 10px 12px;
-  background: #1a1d24;
+  padding: 10px 13px;
+  background: #1c2027;
   color: #eceef2;
-  border: 1px solid #454c5a;
-  border-radius: 8px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  border: 1px solid #3d434f;
+  border-left: 3px solid #8fce4a;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 16px 32px -8px rgba(0, 0, 0, 0.6);
   font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   pointer-events: none;
+  animation: rcb-toast-in 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes rcb-pop-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes rcb-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rcb-controls,
+  .rcb-controls > button.rcb-btn,
+  .rcb-menu,
+  .rcb-menu *,
+  .rcb-toast {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 li.chat-history--row.rcb-hidden {
