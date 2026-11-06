@@ -25,6 +25,10 @@ Filtering depends on Rumble’s live chat markup. Current selectors (verify on a
 - Container: `.chat-history`
 - Rows: `li.chat-history--row.js-chat-history-item`
 - Username: attribute `data-username`, fallback `.chat-history--username`
+- Message id: attribute `data-message-id` (19-digit numeric string; passes `RCB.sanitizeMessageId`). `concealRow()` uses it to de-duplicate hidden-message counts across re-renders and tabs. Rows lacking a valid id fall back to per-element `dataset.rcbCounted`, which can double-count re-rendered rows.
+- Other row attributes seen (not used by the extension): `data-message-user-id`, `data-entity-type` (`user`), `data-video-fid`.
+
+Verified 2026-11-05 on a live stream (Timcast IRL): all 54 rows had a unique `data-message-id`; none were missing. Only `data-entity-type="user"` rows were observed, so rants/system rows were not checked. Re-check if counts start double-incrementing.
 
 When Rumble changes HTML, fix selectors here first.
 
